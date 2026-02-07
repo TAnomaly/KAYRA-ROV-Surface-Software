@@ -1,0 +1,18 @@
+# ── Build artifacts ──
+build/
+*.o
+*.d
+
+# ── Binary ──
+surface-control
+
+# ── IDE / Editor ──
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# ── OS junk ──
+Thumbs.db
