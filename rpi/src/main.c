@@ -164,7 +164,7 @@ int main(int argc, char *argv[])
     /* ── Camera ── */
     pid_t cam_pid = -1;
     if (use_camera) {
-        cam_pid = camera_start(GCS_IP, CAMERA_PORT,
+        cam_pid = camera_start(gcs_ip, CAMERA_PORT,
                                CAMERA_WIDTH, CAMERA_HEIGHT, CAMERA_FPS);
     }
 
