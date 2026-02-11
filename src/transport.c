@@ -35,8 +35,30 @@ static int udp_init(transport_t *t)
 
     /* Non-blocking */
     int flags = fcntl(t->fd, F_GETFL, 0);
-    if (flags >= 0)
-        fcntl(t->fd, F_SETFL, flags | O_NONBLOCK);
+    if (flags < 0 || fcntl(t->fd, F_SETFL, flags | O_NONBLOCK) < 0) {
+        perror("[transport] fcntl non-block");
+        close(t->fd);
+        t->fd = -1;
+        return -1;
+    }
+
+    /* Bind to local port so we can receive telemetry from RPi */
+    if (t->listen_port > 0) {
+        struct sockaddr_in bind_addr;
+        memset(&bind_addr, 0, sizeof(bind_addr));
+        bind_addr.sin_family      = AF_INET;
+        bind_addr.sin_port        = htons((uint16_t)t->listen_port);
+        bind_addr.sin_addr.s_addr = INADDR_ANY;
+
+        if (bind(t->fd, (struct sockaddr *)&bind_addr, sizeof(bind_addr)) < 0) {
+            perror("[transport] bind()");
+            close(t->fd);
+            t->fd = -1;
+            return -1;
+        }
+        printf("[transport] UDP bound to 0.0.0.0:%d  (recv enabled)\n",
+               t->listen_port);
+    }
 
     printf("[transport] UDP → %s:%d  (fd %d)\n",
            t->target_ip, t->target_port, t->fd);
@@ -144,6 +166,32 @@ static int serial_send(transport_t *t, const uint8_t *buf, size_t len)
 }
 
 /* ================================================================== */
+/*  Non-blocking receive (UDP or Serial)                              */
+/* ================================================================== */
+
+static int udp_recv(transport_t *t, uint8_t *buf, size_t maxlen)
+{
+    ssize_t n = recvfrom(t->fd, buf, maxlen, MSG_DONTWAIT, NULL, NULL);
+    if (n < 0) {
+        if (errno == EAGAIN || errno == EWOULDBLOCK)
+            return 0;           /* nothing available */
+        return -1;
+    }
+    return (int)n;
+}
+
+static int serial_recv(transport_t *t, uint8_t *buf, size_t maxlen)
+{
+    ssize_t n = read(t->fd, buf, maxlen);
+    if (n < 0) {
+        if (errno == EAGAIN || errno == EWOULDBLOCK)
+            return 0;
+        return -1;
+    }
+    return (int)n;
+}
+
+/* ================================================================== */
 /*  Public interface                                                  */
 /* ================================================================== */
 
@@ -161,6 +209,15 @@ int transport_send(transport_t *t, const uint8_t *buf, size_t len)
     switch (t->type) {
     case TRANSPORT_UDP:    return udp_send(t, buf, len);
     case TRANSPORT_SERIAL: return serial_send(t, buf, len);
+    }
+    return -1;
+}
+
+int transport_recv(transport_t *t, uint8_t *buf, size_t maxlen)
+{
+    switch (t->type) {
+    case TRANSPORT_UDP:    return udp_recv(t, buf, maxlen);
+    case TRANSPORT_SERIAL: return serial_recv(t, buf, maxlen);
     }
     return -1;
 }

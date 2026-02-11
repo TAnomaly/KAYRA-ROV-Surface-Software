@@ -1,0 +1,21 @@
+[Unit]
+Description=KAYRA ROV Onboard Controller
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/home/pi/kayra-rov/kayra-rov
+WorkingDirectory=/home/pi/kayra-rov
+Restart=always
+RestartSec=3
+StandardOutput=journal
+StandardError=journal
+
+# Safety: if the service crashes, motors go neutral
+# because PCA9685 holds last PWM until next write.
+# The ExecStopPost sends neutral before full stop.
+ExecStopPost=/bin/sh -c 'echo "[kayra-rov] Service stopped"'
+
+[Install]
+WantedBy=multi-user.target

@@ -174,6 +174,9 @@ struct BinStlTri {
 
 static void load_rov_stl(const char *path)
 {
+    /* Free previous mesh if reloading */
+    if (s_rov_mesh) { delete[] s_rov_mesh; s_rov_mesh = nullptr; s_rov_count = 0; }
+
     FILE *f = fopen(path, "rb");
     if (!f) {
         fprintf(stderr, "[gui] STL not found: %s\n", path);
@@ -183,9 +186,13 @@ static void load_rov_stl(const char *path)
     fseek(f, 80, SEEK_SET);
     uint32_t tri_count = 0;
     if (fread(&tri_count, 4, 1, f) != 1) { fclose(f); return; }
+    if (tri_count == 0 || tri_count > 10000000u) {
+        fprintf(stderr, "[gui] STL tri_count suspicious: %u\n", (unsigned)tri_count);
+        fclose(f); return;
+    }
     printf("[gui] STL raw triangles: %u\n", (unsigned)tri_count);
 
-    BinStlTri *raw = (BinStlTri *)malloc(tri_count * sizeof(BinStlTri));
+    BinStlTri *raw = (BinStlTri *)malloc((size_t)tri_count * sizeof(BinStlTri));
     if (!raw) { fclose(f); return; }
     size_t got = fread(raw, sizeof(BinStlTri), tri_count, f);
     fclose(f);
@@ -829,8 +836,10 @@ static void draw_circular_stick(ImDrawList *dl, ImVec2 ctr, float radius,
     dl->AddLine(ImVec2(cx - r, cy), ImVec2(cx + r, cy), COL_GRID, 1.0f);
 
     float nx = clampf(ax, -1, 1), ny = clampf(ay, -1, 1);
-    float px = cx + nx * (r - 8), py = cy + ny * (r - 8);
+    /* Clamp magnitude so the dot stays inside the circle */
     float mag = sqrtf(nx * nx + ny * ny);
+    if (mag > 1.0f) { nx /= mag; ny /= mag; mag = 1.0f; }
+    float px = cx + nx * (r - 8), py = cy + ny * (r - 8);
 
     if (mag > 0.02f) dl->AddLine(ctr, ImVec2(px, py), COL_CYAN_DIM, 1.5f);
 
@@ -1112,17 +1121,17 @@ static void render_left_panel(const gui_frame_t *d,
 
     dl->AddText(ImVec2(wp.x + 6, wp.y + 3), COL_DIM, "JOYSTICK");
 
-    /* Left stick */
+    /* Left stick — Sway (X) + Surge (Y) — movement */
     float lx = d->js_num_axes > 0 ? d->js_axes[0] : 0;
     float ly = d->js_num_axes > 1 ? d->js_axes[1] : 0;
     draw_circular_stick(dl, ImVec2(cx, wp.y + 28 + sr), sr, lx, ly,
-                        "Left Stick");
+                        "Sway / Surge");
 
-    /* Right stick */
+    /* Right stick — Yaw (X) + Heave (Y) — rotation + vertical */
     float rx = d->js_num_axes > 2 ? d->js_axes[2] : 0;
     float ry = d->js_num_axes > 3 ? d->js_axes[3] : 0;
     float r2y = wp.y + 28 + sr + sr + 48 + sr;
-    draw_circular_stick(dl, ImVec2(cx, r2y), sr, rx, ry, "Right Stick");
+    draw_circular_stick(dl, ImVec2(cx, r2y), sr, rx, ry, "Yaw / Heave");
 
     /* Buttons */
     float by = r2y + sr + 42;

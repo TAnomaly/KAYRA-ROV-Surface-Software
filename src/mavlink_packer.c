@@ -26,10 +26,10 @@
  *
  *   Joystick axis             → MAVLink field   → Meaning
  *   ─────────────────────────────────────────────────────────
- *   Left stick Y  (axis 1)   → x [-1000,+1000] → surge (fwd/back)
  *   Left stick X  (axis 0)   → y [-1000,+1000] → sway  (left/right)
- *   Right stick Y (axis 3)   → z [-1000,+1000] → heave (up/down)
+ *   Left stick Y  (axis 1)   → x [-1000,+1000] → surge (fwd/back)
  *   Right stick X (axis 2)   → r [-1000,+1000] → yaw   (CW/CCW)
+ *   Right stick Y (axis 3)   → z [-1000,+1000] → heave (up/down)
  *   Buttons 0-15             → buttons bitmask
  */
 

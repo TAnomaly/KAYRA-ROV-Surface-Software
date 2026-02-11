@@ -13,6 +13,10 @@
 
 static SDL_Joystick *g_js = NULL;
 
+/* Auto-center calibration: capture initial axis offsets */
+static float  g_center[JOYSTICK_MAX_AXES] = {0};
+static int    g_calibrated = 0;
+
 /* ------------------------------------------------------------------ */
 
 int joystick_init(void)
@@ -82,6 +86,7 @@ void joystick_update(joystick_state_t *state)
                 printf("[joystick] Reconnected: %s\n",
                        SDL_JoystickName(g_js));
                 state->connected = true;
+                g_calibrated = 0;  /* re-calibrate center on reconnect */
             }
         }
         if (!state->connected) {
@@ -111,8 +116,17 @@ void joystick_update(joystick_state_t *state)
         if (norm < -1.0f) norm = -1.0f;
         if (norm >  1.0f) norm =  1.0f;
 
+        /* Auto-center: capture first reading as offset */
+        if (!g_calibrated)
+            g_center[i] = norm;
+
+        norm -= g_center[i];
+        if (norm < -1.0f) norm = -1.0f;
+        if (norm >  1.0f) norm =  1.0f;
+
         state->axes[i] = apply_deadzone(norm, JOYSTICK_DEADZONE);
     }
+    g_calibrated = 1;
 
     /* Read buttons into bitmask */
     state->buttons = 0;

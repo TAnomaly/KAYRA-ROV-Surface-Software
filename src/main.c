@@ -25,7 +25,9 @@
 #include "mavlink_minimal.h"
 #include "transport.h"
 #include "safety.h"
+#include "keyboard.h"
 #include "gui.h"
+#include "telemetry_rx.h"
 
 /* ------------------------------------------------------------------ */
 
@@ -87,6 +89,7 @@ int main(int argc, char *argv[])
     transport.type        = TRANSPORT_UDP;
     transport.fd          = -1;
     transport.target_port = DEFAULT_UDP_PORT;
+    transport.listen_port = DEFAULT_LISTEN_PORT;
     transport.baud_rate   = DEFAULT_SERIAL_BAUD;
     strncpy(transport.target_ip, DEFAULT_TARGET_IP,
             sizeof(transport.target_ip) - 1);
@@ -178,6 +181,11 @@ int main(int argc, char *argv[])
     mavlink_packer_init();
     safety_init();
 
+    /* Telemetry receiver (for incoming data from RPi) */
+    telemetry_parser_t telem_parser;
+    telemetry_state_t  telem;
+    telemetry_rx_init(&telem_parser, &telem);
+
     if (transport_init(&transport) < 0) {
         fprintf(stderr, "[main] Transport init failed — aborting\n");
         joystick_close();
@@ -221,6 +229,29 @@ int main(int argc, char *argv[])
         /* 1 — read joystick */
         joystick_update(&js);
 
+        /* 1b — keyboard fallback (when joystick is disconnected or
+         *      for quick testing — keys override axes directly) */
+        if (!js.connected)
+            keyboard_update(&js);
+
+        /* 1c — smooth ramp on all axes (prevents abrupt jumps) */
+        {
+            static float smooth_axes[JOYSTICK_MAX_AXES] = {0};
+            static uint64_t prev_ms = 0;
+            if (prev_ms == 0) prev_ms = now;
+            float dt = (float)(now - prev_ms) / 1000.0f;
+            if (dt > 0.1f) dt = 0.1f;
+            float max_step = JS_RAMP_RATE * dt;
+            for (int i = 0; i < JOYSTICK_MAX_AXES; i++) {
+                float diff = js.axes[i] - smooth_axes[i];
+                if (diff >  max_step) smooth_axes[i] += max_step;
+                else if (diff < -max_step) smooth_axes[i] -= max_step;
+                else smooth_axes[i] = js.axes[i];
+                js.axes[i] = smooth_axes[i];
+            }
+            prev_ms = now;
+        }
+
         /* 2 — map axes to control values */
         mavlink_packer_map(&js, &ctrl);
 
@@ -243,7 +274,16 @@ int main(int argc, char *argv[])
             last_heartbeat = now;
         }
 
-        /* 6 — Hz estimator */
+        /* 6 — receive telemetry from RPi */
+        {
+            uint8_t rxbuf[512];
+            int rxn = transport_recv(&transport, rxbuf, sizeof(rxbuf));
+            if (rxn > 0)
+                telemetry_rx_feed(&telem_parser, &telem, rxbuf, rxn);
+            telemetry_rx_tick(&telem, now);
+        }
+
+        /* 7 — Hz estimator */
         hz_frames++;
         if (now - hz_start >= 1000) {
             loop_hz   = (float)hz_frames * 1000.0f / (float)(now - hz_start);
@@ -251,7 +291,7 @@ int main(int argc, char *argv[])
             hz_frames = 0;
         }
 
-        /* 7 — display */
+        /* 8 — display */
         if (gui_mode) {
             gui_frame_t gf;
             memset(&gf, 0, sizeof(gf));
@@ -272,6 +312,17 @@ int main(int argc, char *argv[])
             gf.packets_sent  = packets_sent;
             gf.loop_hz       = loop_hz;
             gf.transport_str = transport_str;
+
+            /* Telemetry from RPi */
+            gf.battery_voltage  = telem.battery_voltage;
+            gf.battery_current  = telem.battery_current;
+            gf.battery_percent  = telem.battery_percent;
+            gf.water_temp_c     = telem.water_temp_c;
+            gf.internal_temp_c  = telem.internal_temp_c;
+            gf.depth_m          = telem.depth_m;
+            gf.imu_roll         = telem.roll_deg;
+            gf.imu_pitch        = telem.pitch_deg;
+            gf.imu_yaw          = telem.yaw_deg;
 
             if (!gui_render(&gf))
                 g_running = 0;
