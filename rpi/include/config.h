@@ -17,7 +17,7 @@
 #define GCS_SYSID           255
 
 /* ── Timing ── */
-#define MAIN_LOOP_HZ        50
+#define MAIN_LOOP_HZ        200
 #define MAIN_LOOP_US        (1000000 / MAIN_LOOP_HZ)
 #define HEARTBEAT_INTERVAL_MS   1000
 #define TELEMETRY_INTERVAL_MS   100         /* 10 Hz telemetry              */
@@ -48,7 +48,7 @@
 #define CAMERA_FPS          30
 
 /* ── Smooth ramping ── */
-#define MOTOR_RAMP_RATE     2000.0f  /* units/sec — 1s from -1000 to +1000   */
+#define MOTOR_RAMP_RATE     8000.0f  /* units/sec — 0.25s from -1000 to +1000 */
 
 /* ── Safety ── */
 #define MOTOR_CLAMP_MIN     (-1000)

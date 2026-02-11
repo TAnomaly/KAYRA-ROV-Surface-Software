@@ -45,7 +45,7 @@
 #define TARGET_COMPONENT_ID     0
 
 /* ---- Timing ---- */
-#define LOOP_RATE_HZ            50
+#define LOOP_RATE_HZ            100
 #define LOOP_PERIOD_MS          (1000 / LOOP_RATE_HZ)
 #define HEARTBEAT_INTERVAL_MS   1000
 #define FAILSAFE_TIMEOUT_MS     500

@@ -137,7 +137,7 @@ int main(int argc, char *argv[])
     }
 
     /* Non-blocking so main loop doesn't stall */
-    struct timeval tv = { .tv_sec = 0, .tv_usec = 5000 }; /* 5ms timeout */
+    struct timeval tv = { .tv_sec = 0, .tv_usec = 1000 }; /* 1ms timeout */
     setsockopt(sock, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
 
     /* GCS address for sending telemetry back */
