@@ -20,6 +20,7 @@
 #include <signal.h>
 #include <unistd.h>
 #include <time.h>
+#include <math.h>
 #include <arpa/inet.h>
 #include <sys/socket.h>
 
@@ -28,6 +29,7 @@
 #include "pca9685.h"
 #include "mixer.h"
 #include "camera.h"
+#include "mpu6050.h"
 
 /* ================================================================== */
 /*  Globals                                                            */
@@ -74,6 +76,7 @@ int main(int argc, char *argv[])
     /* ── Parse args ── */
     int use_camera = 1;
     int use_pwm    = 1;
+    int use_imu    = 1;
     const char *gcs_ip   = GCS_IP;
     int         gcs_port = GCS_PORT;
     int         listen_port = LISTEN_PORT;
@@ -81,6 +84,7 @@ int main(int argc, char *argv[])
     for (int i = 1; i < argc; i++) {
         if (strcmp(argv[i], "--no-camera") == 0) { use_camera = 0; continue; }
         if (strcmp(argv[i], "--no-pwm") == 0)    { use_pwm = 0;    continue; }
+        if (strcmp(argv[i], "--no-imu") == 0)    { use_imu = 0;    continue; }
         if (strcmp(argv[i], "--gcs") == 0 && i + 1 < argc) {
             gcs_ip = argv[++i]; continue;
         }
@@ -95,6 +99,7 @@ int main(int argc, char *argv[])
                    "Usage: %s [OPTIONS]\n\n"
                    "  --no-camera          Skip camera streaming\n"
                    "  --no-pwm             Dry-run (no motor output)\n"
+                   "  --no-imu             Skip IMU (MPU6050) reading\n"
                    "  --gcs <ip>           GCS IP address       (default: %s)\n"
                    "  --gcs-port <port>    GCS telemetry port   (default: %d)\n"
                    "  --port <port>        Listen port           (default: %d)\n",
@@ -153,11 +158,27 @@ int main(int argc, char *argv[])
             fprintf(stderr, "[main] PCA9685 init failed — running without PWM\n");
             use_pwm = 0;
         } else {
-            /* Arm ESCs: send neutral for 2 seconds */
-            printf("[main] Arming ESCs (2s neutral)...\n");
-            pca9685_set_all_us(&pwm, PWM_ARM_US);
-            sleep(2);
-            printf("[main] ESCs armed.\n");
+            /* Arm ESCs: send neutral pulse for several seconds.
+             * ESCs need to see 1500us (neutral) at power-on to arm.
+             * We send it in a loop to ensure stable signal.        */
+            printf("[main] Arming ESCs — sending neutral (5s)...\n");
+            for (int t = 0; t < 50; t++) {   /* 50 x 100ms = 5 seconds */
+                pca9685_set_all_us(&pwm, PWM_NEUTRAL_US);
+                usleep(100000);
+            }
+            printf("[main] ESCs armed. Bip sesi duyduysan hazir.\n");
+        }
+    }
+
+    /* ── IMU (MPU6050) ── */
+    mpu6050_t imu;
+    memset(&imu, 0, sizeof(imu));
+    imu.fd = -1;
+
+    if (use_imu) {
+        if (mpu6050_init(&imu, PCA9685_I2C_BUS, MPU6050_ADDR) < 0) {
+            fprintf(stderr, "[main] IMU init failed — running without IMU\n");
+            use_imu = 0;
         }
     }
 
@@ -264,15 +285,22 @@ int main(int argc, char *argv[])
             last_hb_ms = now;
         }
 
-        /* ── 5b. Send telemetry at 10 Hz ── */
+        /* ── 5b. Read IMU ── */
+        if (use_imu)
+            mpu6050_update(&imu);
+
+        /* ── 5c. Send telemetry at 10 Hz ── */
         if (now - last_telem_ms >= TELEMETRY_INTERVAL_MS) {
             uint32_t boot_ms = (uint32_t)(now & 0xFFFFFFFF);
             uint8_t tbuf[64];
             int tlen;
 
-            /* ATTITUDE — placeholder (real IMU would fill these) */
+            /* ATTITUDE — real IMU data (degrees → radians) */
+            float roll_rad  = use_imu ? imu.roll  * ((float)M_PI / 180.0f) : 0.0f;
+            float pitch_rad = use_imu ? imu.pitch * ((float)M_PI / 180.0f) : 0.0f;
+            float yaw_rad   = use_imu ? imu.yaw   * ((float)M_PI / 180.0f) : 0.0f;
             tlen = mavlink_pack_attitude(tbuf, sizeof(tbuf), &mav_seq,
-                       boot_ms, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f);
+                       boot_ms, roll_rad, pitch_rad, yaw_rad, 0.0f, 0.0f, 0.0f);
             if (tlen > 0)
                 sendto(sock, tbuf, (size_t)tlen, 0,
                        (struct sockaddr *)&gcs_addr, sizeof(gcs_addr));
@@ -284,9 +312,10 @@ int main(int argc, char *argv[])
                 sendto(sock, tbuf, (size_t)tlen, 0,
                        (struct sockaddr *)&gcs_addr, sizeof(gcs_addr));
 
-            /* SCALED_PRESSURE — placeholder */
+            /* SCALED_PRESSURE — depth placeholder, temp from IMU */
+            int16_t temp_centi = use_imu ? (int16_t)(imu.temp_c * 100.0f) : 2500;
             tlen = mavlink_pack_scaled_pressure(tbuf, sizeof(tbuf), &mav_seq,
-                       boot_ms, 1013.25f, 0.0f, 2500);  /* 1atm, 0m, 25°C */
+                       boot_ms, 1013.25f, 0.0f, temp_centi);
             if (tlen > 0)
                 sendto(sock, tbuf, (size_t)tlen, 0,
                        (struct sockaddr *)&gcs_addr, sizeof(gcs_addr));
@@ -297,12 +326,14 @@ int main(int argc, char *argv[])
         /* ── 6. Console status (4 Hz) ── */
         if (now - last_print_ms >= 250) {
             printf("\r  [%s] x:%+5d y:%+5d z:%+5d r:%+5d | "
-                   "M: %+5d %+5d %+5d %+5d %+5d %+5d | "
+                   "R:%+6.1f P:%+6.1f Y:%5.1f %4.1fC | "
                    "pkts:%lu %.0fHz    ",
                    failsafe ? "FAIL" : " OK ",
                    ctrl.x, ctrl.y, ctrl.z, ctrl.r,
-                   (int)smooth[0], (int)smooth[1], (int)smooth[2],
-                   (int)smooth[3], (int)smooth[4], (int)smooth[5],
+                   use_imu ? imu.roll  : 0.0f,
+                   use_imu ? imu.pitch : 0.0f,
+                   use_imu ? imu.yaw   : 0.0f,
+                   use_imu ? imu.temp_c : 0.0f,
                    (unsigned long)packets_recv, loop_hz);
             fflush(stdout);
             last_print_ms = now;
@@ -332,6 +363,10 @@ int main(int argc, char *argv[])
         usleep(100000);
         pca9685_close(&pwm);
     }
+
+    /* Stop IMU */
+    if (use_imu)
+        mpu6050_close(&imu);
 
     /* Stop camera */
     if (cam_pid > 0)

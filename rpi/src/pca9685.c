@@ -25,6 +25,9 @@
 #define MODE1_SLEEP     0x10
 #define MODE1_AI        0x20    /* auto-increment */
 
+/* Mode2 bits */
+#define MODE2_OUTDRV    0x04    /* totem-pole output (required for ESCs) */
+
 /* ── I2C helpers ── */
 
 static int i2c_write_reg(int fd, uint8_t reg, uint8_t val)
@@ -66,22 +69,22 @@ int pca9685_init(pca9685_t *dev, int bus, uint8_t addr, int freq_hz)
         return -1;
     }
 
+    /* MODE2: totem-pole output — required for ESC signal levels */
+    i2c_write_reg(dev->fd, REG_MODE2, MODE2_OUTDRV);
+
     /* Calculate prescaler: prescale = round(25MHz / (4096 * freq)) - 1 */
     float prescale_f = 25000000.0f / (4096.0f * (float)freq_hz) - 1.0f;
     uint8_t prescale = (uint8_t)(prescale_f + 0.5f);
 
     /* Must sleep to change prescaler */
-    int mode1 = i2c_read_reg(dev->fd, REG_MODE1);
-    if (mode1 < 0) { close(dev->fd); dev->fd = -1; return -1; }
-
-    if (i2c_write_reg(dev->fd, REG_MODE1, (mode1 & 0x7F) | MODE1_SLEEP) < 0 ||
+    if (i2c_write_reg(dev->fd, REG_MODE1, MODE1_SLEEP) < 0 ||
         i2c_write_reg(dev->fd, REG_PRESCALE, prescale) < 0 ||
-        i2c_write_reg(dev->fd, REG_MODE1, mode1 | MODE1_AI) < 0) {
+        i2c_write_reg(dev->fd, REG_MODE1, MODE1_AI) < 0) {
         perror("[pca9685] init write failed");
         close(dev->fd); dev->fd = -1; return -1;
     }
     usleep(500);
-    i2c_write_reg(dev->fd, REG_MODE1, mode1 | MODE1_AI | MODE1_RESTART);
+    i2c_write_reg(dev->fd, REG_MODE1, MODE1_AI | MODE1_RESTART);
     usleep(500);
 
     /* ticks per microsecond: 4096 ticks per (1/freq) seconds */
