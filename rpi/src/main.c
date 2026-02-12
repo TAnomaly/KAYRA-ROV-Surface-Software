@@ -60,8 +60,8 @@ static uint64_t time_ms(void)
 /* Map [-1000, +1000] → [PWM_MIN_US, PWM_MAX_US] with neutral at 1500 */
 static int motor_to_pwm_us(int16_t val)
 {
-    /* Dead band: values close to 0 → no pulse (motor fully off) */
-    if (val > -30 && val < 30) return 0;
+    /* Dead band: values close to 0 → 1000us pulse (motor stopped, ESC stays armed) */
+    if (val > -30 && val < 30) return 1000;
 
     /* val: -1000..+1000 → 1100..1900 */
     int us = PWM_NEUTRAL_US + (int)val * (PWM_MAX_US - PWM_NEUTRAL_US) / 1000;
@@ -269,7 +269,9 @@ int main(int argc, char *argv[])
                 fprintf(stderr, "\n[FAILSAFE] No packets for %d ms — MOTORS STOP\n",
                         FAILSAFE_TIMEOUT_MS);
                 failsafe = 1;
-                armed = 0;  /* auto-disarm on failsafe */
+                /* Motors already forced to 0 below — keep armed state
+                 * so control resumes automatically when packets return.
+                 * ARM/DISARM is only changed by the START button.       */
             }
             ctrl.x = 0; ctrl.y = 0; ctrl.z = 0; ctrl.r = 0;
             ctrl.buttons = 0;
