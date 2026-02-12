@@ -60,8 +60,8 @@ static uint64_t time_ms(void)
 /* Map [-1000, +1000] → [PWM_MIN_US, PWM_MAX_US] with neutral at 1500 */
 static int motor_to_pwm_us(int16_t val)
 {
-    /* Dead band: values close to 0 → exact neutral (no motor creep) */
-    if (val > -30 && val < 30) return PWM_NEUTRAL_US;
+    /* Dead band: values close to 0 → no pulse (motor fully off) */
+    if (val > -30 && val < 30) return 0;
 
     /* val: -1000..+1000 → 1100..1900 */
     int us = PWM_NEUTRAL_US + (int)val * (PWM_MAX_US - PWM_NEUTRAL_US) / 1000;
@@ -334,9 +334,15 @@ int main(int argc, char *argv[])
                 MOTOR_CH_FR, MOTOR_CH_FL, MOTOR_CH_BR,
                 MOTOR_CH_BL, MOTOR_CH_VL, MOTOR_CH_VR,
             };
-            for (int i = 0; i < NUM_MOTORS; i++) {
-                pca9685_set_pulse_us(&pwm, ch_map[i],
-                                     motor_to_pwm_us((int16_t)smooth[i]));
+            if (!armed || failsafe) {
+                /* DISARMED / FAILSAFE → sinyal tamamen kes (0us = no pulse)
+                 * ESC "no signal" moduna gecer, motor kesinlikle donmez */
+                pca9685_set_all_us(&pwm, 0);
+            } else {
+                for (int i = 0; i < NUM_MOTORS; i++) {
+                    pca9685_set_pulse_us(&pwm, ch_map[i],
+                                         motor_to_pwm_us((int16_t)smooth[i]));
+                }
             }
         }
 

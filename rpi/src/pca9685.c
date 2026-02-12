@@ -100,11 +100,20 @@ void pca9685_set_pulse_us(pca9685_t *dev, int channel, int pulse_us)
 {
     if (dev->fd < 0 || channel < 0 || channel > 15) return;
 
+    uint8_t reg = REG_LED0_ON_L + 4 * channel;
+
+    if (pulse_us <= 0) {
+        /* Full OFF — bit 4 of OFF_H register = output always low */
+        uint8_t buf[5] = { reg, 0x00, 0x00, 0x00, 0x10 };
+        if (write(dev->fd, buf, 5) != 5)
+            perror("[pca9685] set full off");
+        return;
+    }
+
     uint16_t on  = 0;
     uint16_t off = (uint16_t)((float)pulse_us * dev->pulse_scale);
     if (off > 4095) off = 4095;
 
-    uint8_t reg = REG_LED0_ON_L + 4 * channel;
     uint8_t buf[5] = {
         reg,
         (uint8_t)(on & 0xFF),
