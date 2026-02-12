@@ -39,6 +39,16 @@ static volatile sig_atomic_t g_running = 1;
 
 static void on_signal(int sig) { (void)sig; g_running = 0; }
 
+/* ── Xbox controller button bits (SDL mapping) ── */
+#define BTN_A       (1 << 0)
+#define BTN_B       (1 << 1)
+#define BTN_X       (1 << 2)
+#define BTN_Y       (1 << 3)
+#define BTN_LB      (1 << 4)
+#define BTN_RB      (1 << 5)
+#define BTN_BACK    (1 << 6)
+#define BTN_START   (1 << 7)
+
 /* Monotonic ms clock */
 static uint64_t time_ms(void)
 {
@@ -207,6 +217,8 @@ int main(int argc, char *argv[])
     uint64_t packets_recv    = 0;
     uint8_t  mav_seq         = 0;
     int      failsafe        = 0;
+    int      armed           = 0;       /* 0 = disarmed, 1 = armed */
+    uint16_t prev_buttons    = 0;       /* for edge detection */
 
     uint64_t hz_start  = time_ms();
     uint64_t hz_frames = 0;
@@ -239,30 +251,63 @@ int main(int argc, char *argv[])
         /* ── 2. Failsafe check ── */
         if (now - last_packet_ms > FAILSAFE_TIMEOUT_MS) {
             if (!failsafe) {
-                fprintf(stderr, "[FAILSAFE] No packets for %d ms — neutral\n",
+                fprintf(stderr, "\n[FAILSAFE] No packets for %d ms — MOTORS STOP\n",
                         FAILSAFE_TIMEOUT_MS);
                 failsafe = 1;
+                armed = 0;  /* auto-disarm on failsafe */
             }
             ctrl.x = 0; ctrl.y = 0; ctrl.z = 0; ctrl.r = 0;
             ctrl.buttons = 0;
         }
 
-        /* ── 3. Mix → motors ── */
-        mixer_compute(ctrl.x, ctrl.y, ctrl.z, ctrl.r, motors);
+        /* ── 2b. Button edge detection ── */
+        uint16_t pressed = ctrl.buttons & ~prev_buttons;  /* newly pressed */
+        prev_buttons = ctrl.buttons;
 
-        /* ── 3b. Smooth ramp — motors don't jump, they glide ── */
+        /* START button → toggle ARM/DISARM */
+        if (pressed & BTN_START) {
+            armed = !armed;
+            if (armed)
+                printf("\n[ARM] Motors ARMED — joystick active\n");
+            else
+                printf("\n[DISARM] Motors DISARMED — all neutral\n");
+        }
+
+        /* ── 3. Mix → motors ── */
+        if (armed && !failsafe) {
+            /* X button held → all motors full forward (test) */
+            if (ctrl.buttons & BTN_X) {
+                for (int i = 0; i < MIXER_NUM_MOTORS; i++)
+                    motors[i] = 1000;
+            } else {
+                mixer_compute(ctrl.x, ctrl.y, ctrl.z, ctrl.r, motors);
+            }
+        } else {
+            /* DISARMED or FAILSAFE → all motors zero */
+            for (int i = 0; i < MIXER_NUM_MOTORS; i++)
+                motors[i] = 0;
+        }
+
+        /* ── 3b. Smooth ramp (skip ramp when disarmed — instant stop) ── */
         {
             static uint64_t prev_ms = 0;
             if (prev_ms == 0) prev_ms = now;
             float dt = (float)(now - prev_ms) / 1000.0f;
-            if (dt > 0.1f) dt = 0.1f;           /* cap after pause */
-            float max_step = MOTOR_RAMP_RATE * dt;
-            for (int i = 0; i < MIXER_NUM_MOTORS; i++)
-                smooth[i] = move_toward(smooth[i], (float)motors[i], max_step);
+            if (dt > 0.1f) dt = 0.1f;
             prev_ms = now;
+
+            if (!armed || failsafe) {
+                /* INSTANT STOP — no ramping */
+                for (int i = 0; i < MIXER_NUM_MOTORS; i++)
+                    smooth[i] = 0.0f;
+            } else {
+                float max_step = MOTOR_RAMP_RATE * dt;
+                for (int i = 0; i < MIXER_NUM_MOTORS; i++)
+                    smooth[i] = move_toward(smooth[i], (float)motors[i], max_step);
+            }
         }
 
-        /* ── 4. Write PWM (use smoothed values) ── */
+        /* ── 4. Write PWM ── */
         if (use_pwm) {
             static const int ch_map[NUM_MOTORS] = {
                 MOTOR_CH_FR, MOTOR_CH_FL, MOTOR_CH_BR,
@@ -277,7 +322,7 @@ int main(int argc, char *argv[])
         /* ── 5. Send heartbeat at 1 Hz ── */
         if (now - last_hb_ms >= HEARTBEAT_INTERVAL_MS) {
             uint8_t hbbuf[64];
-            int len = mavlink_pack_heartbeat(hbbuf, sizeof(hbbuf), &mav_seq);
+            int len = mavlink_pack_heartbeat(hbbuf, sizeof(hbbuf), &mav_seq, armed);
             if (len > 0) {
                 sendto(sock, hbbuf, (size_t)len, 0,
                        (struct sockaddr *)&gcs_addr, sizeof(gcs_addr));
@@ -325,10 +370,11 @@ int main(int argc, char *argv[])
 
         /* ── 6. Console status (4 Hz) ── */
         if (now - last_print_ms >= 250) {
-            printf("\r  [%s] x:%+5d y:%+5d z:%+5d r:%+5d | "
+            printf("\r  [%s|%s] x:%+5d y:%+5d z:%+5d r:%+5d | "
                    "R:%+6.1f P:%+6.1f Y:%5.1f %4.1fC | "
                    "pkts:%lu %.0fHz    ",
                    failsafe ? "FAIL" : " OK ",
+                   armed    ? " ARM" : "DSRM",
                    ctrl.x, ctrl.y, ctrl.z, ctrl.r,
                    use_imu ? imu.roll  : 0.0f,
                    use_imu ? imu.pitch : 0.0f,

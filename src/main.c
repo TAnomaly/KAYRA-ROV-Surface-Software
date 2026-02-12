@@ -308,10 +308,12 @@ int main(int argc, char *argv[])
             gf.ctrl_r       = ctrl.r;
             gf.ctrl_buttons = ctrl.buttons;
 
-            gf.failsafe      = safety_is_failsafe();
-            gf.packets_sent  = packets_sent;
-            gf.loop_hz       = loop_hz;
-            gf.transport_str = transport_str;
+            gf.failsafe       = safety_is_failsafe();
+            gf.rov_connected  = telem.connected;
+            gf.rov_armed      = telem.armed;
+            gf.packets_sent   = packets_sent;
+            gf.loop_hz        = loop_hz;
+            gf.transport_str  = transport_str;
 
             /* Telemetry from RPi */
             gf.battery_voltage  = telem.battery_voltage;

@@ -67,8 +67,9 @@ bool mavlink_parser_get_manual_control(const mavlink_parser_t *p,
 
 /* ── Telemetry packing (vehicle → GCS) ── */
 
-/* Pack a HEARTBEAT frame.  Returns frame length, or -1. */
-int mavlink_pack_heartbeat(uint8_t *buf, int bufsize, uint8_t *seq);
+/* Pack a HEARTBEAT frame.  Returns frame length, or -1.
+ * armed: 0 = disarmed, 1 = armed (sets MAV_MODE_FLAG bit 7) */
+int mavlink_pack_heartbeat(uint8_t *buf, int bufsize, uint8_t *seq, int armed);
 
 /* Pack an ATTITUDE frame (msg-id 30).  roll/pitch/yaw in RADIANS. */
 int mavlink_pack_attitude(uint8_t *buf, int bufsize, uint8_t *seq,

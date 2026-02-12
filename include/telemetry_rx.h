@@ -15,6 +15,7 @@
 typedef struct {
     /* Connection */
     bool     connected;           /* true if heartbeat within last 3 s  */
+    bool     armed;               /* true if ROV reports armed          */
     uint64_t last_heartbeat_ms;   /* timestamp of last HEARTBEAT        */
     uint64_t packets_received;    /* total parsed frames                */
 

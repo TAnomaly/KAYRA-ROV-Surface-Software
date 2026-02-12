@@ -178,14 +178,15 @@ static void put_float(uint8_t *p, float v)   { memcpy(p, &v, 4); }
 
 /* ── Telemetry: pack HEARTBEAT (msg-id 0, 9 bytes) ── */
 
-int mavlink_pack_heartbeat(uint8_t *buf, int bufsize, uint8_t *seq)
+int mavlink_pack_heartbeat(uint8_t *buf, int bufsize, uint8_t *seq, int armed)
 {
     uint8_t pl[9];
     memset(pl, 0, sizeof(pl));
     put_u32(&pl[0], 0);     /* custom_mode = 0        */
     pl[4] = 2;               /* MAV_TYPE_SUBMARINE     */
     pl[5] = 8;               /* MAV_AUTOPILOT_INVALID  */
-    pl[6] = 64;              /* base_mode = MANUAL     */
+    /* base_mode: bit 7 = SAFETY_ARMED, bit 6 = MANUAL_INPUT */
+    pl[6] = 64 | (armed ? 128 : 0);
     pl[7] = 4;               /* MAV_STATE_ACTIVE       */
     pl[8] = 3;               /* mavlink_version        */
 

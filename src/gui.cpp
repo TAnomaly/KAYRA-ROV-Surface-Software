@@ -1073,7 +1073,7 @@ static void render_title_bar(const gui_frame_t *d, float w)
     ImGui::TextDisabled("%s", d->transport_str ? d->transport_str : "---");
 
     /* Status */
-    ImGui::SameLine(w - 275);
+    ImGui::SameLine(w - 400);
     ImVec2 ip = ImGui::GetCursorScreenPos();
     if (d->failsafe) {
         float p = 0.5f + 0.5f * sinf((float)SDL_GetTicks() * 0.006f);
@@ -1092,6 +1092,26 @@ static void render_title_bar(const gui_frame_t *d, float w)
                               ImVec4(0.180f, 0.800f, 0.443f, 1.0f));
         ImGui::Text("NOMINAL");
         ImGui::PopStyleColor();
+    }
+
+    /* ARM/DISARM badge in title bar */
+    ImGui::SameLine();
+    ImGui::Text("  ");
+    ImGui::SameLine();
+    if (d->rov_connected) {
+        if (d->rov_armed) {
+            ImGui::PushStyleColor(ImGuiCol_Text,
+                                  ImVec4(0.16f, 0.78f, 0.31f, 1.0f));
+            ImGui::Text("ARMED");
+            ImGui::PopStyleColor();
+        } else {
+            ImGui::PushStyleColor(ImGuiCol_Text,
+                                  ImVec4(0.78f, 0.63f, 0.16f, 1.0f));
+            ImGui::Text("DISARMED");
+            ImGui::PopStyleColor();
+        }
+    } else {
+        ImGui::TextDisabled("NO ROV");
     }
 
     ImGui::SameLine(w - 155);
@@ -1198,6 +1218,31 @@ static void render_left_panel(const gui_frame_t *d,
         dl->AddText(ImVec2(wp.x + 24, sy), COL_TEXT, "Normal");
     }
     sy += 19;
+
+    /* ROV connection + armed state */
+    {
+        ImU32 conn_col = d->rov_connected ? COL_GREEN : COL_RED;
+        const char *conn_txt = d->rov_connected ? "ROV ONLINE" : "ROV OFFLINE";
+        dl->AddCircleFilled(ImVec2(wp.x + 14, sy + 7), 4, conn_col);
+        dl->AddText(ImVec2(wp.x + 24, sy), conn_col, conn_txt);
+        sy += 17;
+
+        if (d->rov_connected) {
+            if (d->rov_armed) {
+                float p = 0.5f + 0.5f * sinf((float)SDL_GetTicks() * 0.004f);
+                ImU32 arm_col = IM_COL32(40, 200, 80, (int)(180 + p * 75));
+                dl->AddCircleFilled(ImVec2(wp.x + 14, sy + 7), 5, arm_col);
+                dl->AddText(ImVec2(wp.x + 24, sy), IM_COL32(40, 200, 80, 255),
+                            "ARMED");
+            } else {
+                dl->AddCircleFilled(ImVec2(wp.x + 14, sy + 7), 4,
+                                    IM_COL32(200, 160, 40, 200));
+                dl->AddText(ImVec2(wp.x + 24, sy), IM_COL32(200, 160, 40, 255),
+                            "DISARMED");
+            }
+        }
+        sy += 19;
+    }
 
     char sb[64];
     snprintf(sb, sizeof(sb), "Pkts:%lu  %.1fHz",

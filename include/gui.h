@@ -32,6 +32,8 @@ typedef struct {
 
     /* System status */
     bool     failsafe;
+    bool     rov_connected;     /* heartbeat received within 3s  */
+    bool     rov_armed;         /* ROV motors armed              */
     uint64_t packets_sent;
     float    loop_hz;
     const char *transport_str;  /* e.g. "UDP 192.168.2.1:14550" */
