@@ -28,6 +28,7 @@
 #include "keyboard.h"
 #include "gui.h"
 #include "telemetry_rx.h"
+#include "video_rx.h"
 
 /* ------------------------------------------------------------------ */
 
@@ -172,6 +173,9 @@ int main(int argc, char *argv[])
             SDL_Quit();
             return 1;
         }
+        /* Start receiving camera stream from RPi */
+        if (video_rx_start(5600) < 0)
+            fprintf(stderr, "[main] Video RX init failed — no camera\n");
     }
 
     /* ---- subsystems ---- */
@@ -338,6 +342,22 @@ int main(int argc, char *argv[])
             gf.imu_pitch        = telem.pitch_deg;
             gf.imu_yaw          = telem.yaw_deg;
 
+            /* Camera feed from RPi (H264 over UDP) */
+            {
+                static const uint8_t *last_rgb = NULL;
+                static int last_w = 0, last_h = 0;
+                const uint8_t *cam_rgb;
+                int cam_w, cam_h;
+                if (video_rx_get_frame(&cam_rgb, &cam_w, &cam_h)) {
+                    last_rgb = cam_rgb;
+                    last_w   = cam_w;
+                    last_h   = cam_h;
+                }
+                gf.camera_rgb = last_rgb;
+                gf.camera_w   = last_w;
+                gf.camera_h   = last_h;
+            }
+
             if (!gui_render(&gf))
                 g_running = 0;
         } else {
@@ -367,7 +387,10 @@ int main(int argc, char *argv[])
 
     transport_close(&transport);
     joystick_close();
-    if (gui_mode) gui_shutdown();
+    if (gui_mode) {
+        video_rx_stop();
+        gui_shutdown();
+    }
     SDL_Quit();
 
     printf("[main] Done.\n");

@@ -1308,11 +1308,11 @@ static void render_center_panel(const gui_frame_t *d,
     /* ---- Camera feed or ocean placeholder ---- */
     if (d->camera_rgb && d->camera_w > 0 && d->camera_h > 0) {
         update_camera_texture(d->camera_rgb, d->camera_w, d->camera_h);
-        if (s_cam_tex) {
-            dl->AddImage((ImTextureID)(uintptr_t)s_cam_tex,
-                         ImVec2(cam_x, cam_y),
-                         ImVec2(cam_x + cam_w, cam_y + cam_h));
-        }
+    }
+    if (s_cam_tex) {
+        dl->AddImage((ImTextureID)(uintptr_t)s_cam_tex,
+                     ImVec2(cam_x, cam_y),
+                     ImVec2(cam_x + cam_w, cam_y + cam_h));
     } else {
         render_camera_background(dl, ImVec2(cam_x, cam_y),
                                  ImVec2(cam_w, cam_h));

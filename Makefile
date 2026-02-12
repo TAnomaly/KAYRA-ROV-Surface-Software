@@ -7,6 +7,7 @@ CXX       = g++
 
 CFLAGS    = -Wall -Wextra -Wpedantic -std=c11 -D_DEFAULT_SOURCE -O2
 CFLAGS   += -Iinclude
+CFLAGS   += $(shell pkg-config --cflags gstreamer-1.0 gstreamer-app-1.0)
 
 CXXFLAGS  = -Wall -Wextra -std=c++17 -O2
 CXXFLAGS += -Iinclude
@@ -21,7 +22,8 @@ SDL2_CFLAGS = $(shell sdl2-config --cflags)
 # Quiet flags for third-party code
 IMGUI_CXX  = -std=c++17 -O2 $(SDL2_CFLAGS) -I$(IMGUI_DIR) -I$(IMGUI_DIR)/backends -Iinclude
 
-LDFLAGS    = -lSDL2 -lGL -ldl -lm
+LDFLAGS    = -lSDL2 -lGL -ldl -lm -lpthread
+LDFLAGS   += $(shell pkg-config --libs gstreamer-1.0 gstreamer-app-1.0)
 
 # ── sources ───────────────────────────────────────────────────
 

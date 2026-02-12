@@ -1,16 +1,19 @@
 /*
- * camera.c — ArduCam H264 streaming via GStreamer child process
+ * camera.c — RPi 5 camera streaming via rpicam-vid + GStreamer
  *
- * Launches a GStreamer pipeline that:
- *   libcamerasrc → H264 encode → RTP → UDP to GCS PC
+ * Launches rpicam-vid (works on RPi 5) piped into gst-launch-1.0
+ * to produce an H264 RTP stream over UDP to the Ground Station PC.
  *
- * Runs as a forked child process so it doesn't block the main loop.
+ * Pipeline:
+ *   rpicam-vid → stdout (raw H264) → gst-launch-1.0 fdsrc
+ *     → h264parse → rtph264pay → udpsink
  */
 
 #include "camera.h"
 
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 #include <signal.h>
 #include <unistd.h>
 #include <sys/wait.h>
@@ -26,50 +29,23 @@ pid_t camera_start(const char *dest_ip, int dest_port,
     }
 
     if (pid == 0) {
-        /* Child process — exec gst-launch-1.0 */
-        char caps[128];
-        snprintf(caps, sizeof(caps),
-                 "video/x-raw,width=%d,height=%d,framerate=%d/1",
-                 width, height, fps);
+        /* Child process — exec rpicam-vid piped to gst-launch via sh -c */
+        char cmd[512];
+        snprintf(cmd, sizeof(cmd),
+            "rpicam-vid -t 0 -n --width %d --height %d --framerate %d "
+            "--codec h264 --inline --bitrate 2000000 -o - | "
+            "gst-launch-1.0 fdsrc ! h264parse ! "
+            "rtph264pay config-interval=1 pt=96 ! "
+            "udpsink host=%s port=%d",
+            width, height, fps, dest_ip, dest_port);
 
-        char sink[128];
-        snprintf(sink, sizeof(sink),
-                 "host=%s port=%d", dest_ip, dest_port);
+        execlp("sh", "sh", "-c", cmd, NULL);
 
-        /*
-         * Pipeline:
-         *   libcamerasrc → videoconvert → v4l2h264enc (HW encode on RPi 5)
-         *   → h264parse → rtph264pay → udpsink
-         *
-         * If v4l2h264enc is not available, falls back to x264enc.
-         */
-        execlp("gst-launch-1.0", "gst-launch-1.0",
-               "libcamerasrc", "!",
-               caps, "!",
-               "videoconvert", "!",
-               "v4l2h264enc", "extra-controls=encode,video_bitrate=2000000", "!",
-               "video/x-h264,level=(string)4", "!",
-               "h264parse", "!",
-               "rtph264pay", "config-interval=1", "pt=96", "!",
-               "udpsink", sink,
-               NULL);
-
-        /* If v4l2h264enc failed, try software encoder */
-        execlp("gst-launch-1.0", "gst-launch-1.0",
-               "libcamerasrc", "!",
-               caps, "!",
-               "videoconvert", "!",
-               "x264enc", "tune=zerolatency", "bitrate=2000",
-               "speed-preset=ultrafast", "!",
-               "rtph264pay", "config-interval=1", "pt=96", "!",
-               "udpsink", sink,
-               NULL);
-
-        perror("[camera] execlp gst-launch-1.0 failed");
+        perror("[camera] execlp sh failed");
         _exit(1);
     }
 
-    printf("[camera] Started pipeline PID %d → %s:%d (%dx%d@%dfps)\n",
+    printf("[camera] Started rpicam-vid pipeline PID %d → %s:%d (%dx%d@%dfps)\n",
            pid, dest_ip, dest_port, width, height, fps);
     return pid;
 }
@@ -78,9 +54,12 @@ void camera_stop(pid_t pid)
 {
     if (pid <= 0) return;
     printf("[camera] Stopping PID %d\n", pid);
+    /* Kill the whole process group (rpicam-vid + gst-launch) */
+    kill(-pid, SIGTERM);
     kill(pid, SIGTERM);
     usleep(200000);
     /* Reap zombie */
     int status;
     waitpid(pid, &status, WNOHANG);
 }
+
