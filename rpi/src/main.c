@@ -60,8 +60,8 @@ static uint64_t time_ms(void)
 /* Map [-1000, +1000] → [PWM_MIN_US, PWM_MAX_US] with neutral at 1500 */
 static int motor_to_pwm_us(int16_t val)
 {
-    /* Dead band: values close to 0 → 1000us pulse (motor stopped, ESC stays armed) */
-    if (val > -30 && val < 30) return 1000;
+    /* Dead band: values close to 0 → neutral pulse (motor stopped, ESC stays armed) */
+    if (val > -30 && val < 30) return PWM_NEUTRAL_US;
 
     /* val: -1000..+1000 → 1100..1900 */
     int us = PWM_NEUTRAL_US + (int)val * (PWM_MAX_US - PWM_NEUTRAL_US) / 1000;
