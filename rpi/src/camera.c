@@ -33,7 +33,7 @@ pid_t camera_start(const char *dest_ip, int dest_port,
         char cmd[512];
         snprintf(cmd, sizeof(cmd),
             "rpicam-vid -t 0 -n --width %d --height %d --framerate %d "
-            "--codec h264 --inline --bitrate 2000000 -o - | "
+            "--codec libav --libav-format h264 --inline --bitrate 2000000 -o - | "
             "gst-launch-1.0 fdsrc ! h264parse ! "
             "rtph264pay config-interval=1 pt=96 ! "
             "udpsink host=%s port=%d",
