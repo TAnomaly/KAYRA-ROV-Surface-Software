@@ -60,6 +60,9 @@ static uint64_t time_ms(void)
 /* Map [-1000, +1000] → [PWM_MIN_US, PWM_MAX_US] with neutral at 1500 */
 static int motor_to_pwm_us(int16_t val)
 {
+    /* Dead band: values close to 0 → exact neutral (no motor creep) */
+    if (val > -30 && val < 30) return PWM_NEUTRAL_US;
+
     /* val: -1000..+1000 → 1100..1900 */
     int us = PWM_NEUTRAL_US + (int)val * (PWM_MAX_US - PWM_NEUTRAL_US) / 1000;
     if (us < PWM_MIN_US) us = PWM_MIN_US;
@@ -232,9 +235,21 @@ int main(int argc, char *argv[])
 
         /* ── 1. Receive UDP data ── */
         uint8_t rxbuf[512];
-        ssize_t n = recvfrom(sock, rxbuf, sizeof(rxbuf), 0, NULL, NULL);
+        struct sockaddr_in sender_addr;
+        socklen_t sender_len = sizeof(sender_addr);
+        ssize_t n = recvfrom(sock, rxbuf, sizeof(rxbuf), 0,
+                             (struct sockaddr *)&sender_addr, &sender_len);
 
         if (n > 0) {
+            /* Auto-detect GCS IP from incoming packets */
+            if (gcs_addr.sin_addr.s_addr != sender_addr.sin_addr.s_addr) {
+                gcs_addr.sin_addr = sender_addr.sin_addr;
+                char ip_str[INET_ADDRSTRLEN];
+                inet_ntop(AF_INET, &sender_addr.sin_addr, ip_str, sizeof(ip_str));
+                printf("\n[GCS] Auto-detected GCS IP: %s (telemetry → %s:%d)\n",
+                       ip_str, ip_str, gcs_port);
+            }
+
             for (ssize_t i = 0; i < n; i++) {
                 if (mavlink_parser_feed(&parser, rxbuf[i])) {
                     manual_control_msg_t mc;
@@ -267,10 +282,16 @@ int main(int argc, char *argv[])
         /* START button → toggle ARM/DISARM */
         if (pressed & BTN_START) {
             armed = !armed;
-            if (armed)
+            if (armed) {
                 printf("\n[ARM] Motors ARMED — joystick active\n");
-            else
+            } else {
                 printf("\n[DISARM] Motors DISARMED — all neutral\n");
+                /* Immediately force all motors to neutral */
+                if (use_pwm)
+                    pca9685_set_all_us(&pwm, PWM_NEUTRAL_US);
+                for (int i = 0; i < MIXER_NUM_MOTORS; i++)
+                    smooth[i] = 0.0f;
+            }
         }
 
         /* ── 3. Mix → motors ── */

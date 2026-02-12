@@ -277,10 +277,22 @@ int main(int argc, char *argv[])
         /* 6 — receive telemetry from RPi */
         {
             uint8_t rxbuf[512];
-            int rxn = transport_recv(&transport, rxbuf, sizeof(rxbuf));
-            if (rxn > 0)
+            int rxn;
+            /* Drain all queued datagrams (not just one per loop) */
+            while ((rxn = transport_recv(&transport, rxbuf, sizeof(rxbuf))) > 0)
                 telemetry_rx_feed(&telem_parser, &telem, rxbuf, rxn);
             telemetry_rx_tick(&telem, now);
+
+            /* One-shot log when ROV first connects / disconnects */
+            static bool was_connected = false;
+            if (telem.connected && !was_connected) {
+                printf("[telem] ROV connected (pkts: %lu)\n",
+                       (unsigned long)telem.packets_received);
+                was_connected = true;
+            } else if (!telem.connected && was_connected) {
+                printf("[telem] ROV disconnected\n");
+                was_connected = false;
+            }
         }
 
         /* 7 — Hz estimator */
